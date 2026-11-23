@@ -1,37 +1,63 @@
-// make.fun entrypoint. The playable game is the ./game folder: plain static files a
-// desktop browser opens offline. This file only stages the hand-in — it copies game/
-// and screenshots/ into the output directory and drops a dossier.json for the judge.
+// make.fun hand-in builder. The playable title lives in ./game as plain static
+// files for a desktop browser, and this script only assembles what the judge
+// reads: a copy of the game, the render folder, and a dossier describing both.
 //
-// Locally the grader's /output is replaced by MAKEFUN_OUTPUT_DIR:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-// To play in a browser: node serve.ts, then open http://localhost:8080.
+// Try it locally with:  mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// To play the game:      node serve.ts   (then open http://localhost:8080)
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const sourceDir = fileURLToPath(new URL('.', import.meta.url));
-const targetDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+// The directory holding this script doubles as the source of the hand-in.
+function rootFolder(): string {
+  return fileURLToPath(new URL('.', import.meta.url));
+}
 
-// Assemble the output tree: the game first, then the cover and any other renders.
-mkdirSync(targetDir, { recursive: true });
-cpSync(join(sourceDir, 'game'), join(targetDir, 'game'), { recursive: true });
+// Inside the grader this is /output; for local runs the variable stands in for it.
+function outputFolder(): string {
+  return process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+}
 
-const targetShots = join(targetDir, 'screenshots');
-mkdirSync(targetShots, { recursive: true });
-const sourceShots = join(sourceDir, 'screenshots');
-if (existsSync(sourceShots)) cpSync(sourceShots, targetShots, { recursive: true });
+// Gate numbers copied from reference/gate.json. Handing these to buildDossier
+// makes an invalid submission fail here at the same point the scorer would.
+// Only the text ceiling influences the dossier bytes; the rest just reject.
+function gateLimits() {
+  return {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+    game_path_max_bytes: 1000,
+  };
+}
 
-// Same limits as reference/gate.json. buildDossier refuses an entry that breaks any of
-// them, so passing them here makes a bad hand-in fail exactly where the scorer would.
-// Only text_max_bytes changes the dossier's bytes; the rest are pure refusals.
-const gates = {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 50331648,
-  game_path_max_bytes: 1000,
-};
+// Place a folder's contents under a fresh destination directory.
+function cloneFolder(from: string, to: string): void {
+  mkdirSync(to, { recursive: true });
+  cpSync(from, to, { recursive: true });
+}
 
-writeFileSync(join(targetDir, 'dossier.json'), buildDossier(targetDir, gates));
+// Build the whole delivery tree. Renders are staged ahead of the game; the
+// dossier is written last so it sees the finished output directory.
+function deliver(): void {
+  const home = rootFolder();
+  const landing = outputFolder();
+  mkdirSync(landing, { recursive: true });
+
+  const renderSource = join(home, 'screenshots');
+  const renderTarget = join(landing, 'screenshots');
+  if (existsSync(renderSource)) {
+    cloneFolder(renderSource, renderTarget);
+  } else {
+    mkdirSync(renderTarget, { recursive: true });
+  }
+
+  cloneFolder(join(home, 'game'), join(landing, 'game'));
+
+  const manifest = buildDossier(landing, gateLimits());
+  writeFileSync(join(landing, 'dossier.json'), manifest);
+}
+
+deliver();
