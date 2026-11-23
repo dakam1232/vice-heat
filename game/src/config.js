@@ -1,55 +1,64 @@
-// VICE HEAT - shared configuration. All distances are in world units (roughly metres).
+// Shared tuning constants and the warm coastal palette. All distances are in world metres.
 export const CFG = {
-  grid: 10,                 // ten blocks per side, eleven roads per axis
-  block: 58,                // road centre spacing
-  roadHalf: 9,              // half width of a road
-  walk: 3.2,                // sidewalk width
-  coastZ: 232,              // coastal road / beginning of the beach
-  oceanZ: 302,              // shoreline
-  extent: 290,
-  dayFog: 0x9fc4d8,
-  duskFog: 0xf3b98d,
-  playerSpeed: 7.5,
-  runSpeed: 12.5,
-  carMaxSpeed: 38,
-  carAccel: 17,
-  carBrake: 26,
+  block: 60,
+  roadHalf: 7,
+  sidewalk: 3.6,
+  gridMin: -210,
+  gridMax: 210,
+  limit: 248,
+  oceanZ: -247,
+  shoreZ: -218,
+  eyeHeight: 1.65,
+  walkSpeed: 5.2,
+  runSpeed: 9.4,
+  footAccel: 26,
+  carMaxSpeed: 42,
+  carAccel: 20,
+  carBrake: 34,
   carTurn: 1.9,
-  maxStars: 5,
-  saveKey: 'viceheat.save.v1',
+  policeMaxSpeed: 39,
+  wantedDecay: 11,
+  bustedTime: 6.5,
+  day: 0.72,
 };
 
-export const PALETTE = {
-  asphalt: 0x3b4046,
-  asphaltLight: 0x4a5057,
-  lane: 0xf6e3b3,
-  sidewalk: 0xdccfbb,
-  sand: 0xe8cf9c,
-  ocean: 0x2a8fa6,
-  buildings: [0xf2e3cf, 0xe9c9a8, 0xf0b79f, 0xdfe7e0, 0xf5e6b8, 0xc9dce0, 0xe7cdbd, 0xf4d6c2],
-  trims: [0xffffff, 0xf6eedd, 0xe9ded0, 0xf3e6d6],
-  trees: [0x2f7d55, 0x3a905f, 0x276c4a, 0x4a9c68],
-  cars: [0xe84b3c, 0x2e86c1, 0xf2c14e, 0x2f9e79, 0xf0f0e6, 0x8e6ccf, 0xe4772a, 0x3d4d63],
-  skin: [0xd9a478, 0xb97b52, 0x8d5a3c, 0xf0c69b, 0x6f4a34],
-  clothes: [0xe8503e, 0x3686c4, 0x2c9c72, 0xe9b23c, 0x8d6ac7, 0x2f3f56],
-};
-
-// The four deterministic capture scenes.
-export const SHOTS = {
-  start: { seed: 11 },
-  play: { seed: 17 },
-  drive: { seed: 23 },
-  chase: { seed: 29 },
-};
-
-export const MISSIONS = [
-  { id: 'wheels', name: 'FIRST WHEELS', desc: 'Steal the marked cabriolet and deliver it to the garage', reward: 500 },
-  { id: 'race', name: 'COASTAL RUSH', desc: 'Hit 6 checkpoints before the clock runs out', reward: 750 },
-  { id: 'heat', name: 'HEAT ESCAPE', desc: 'Reach 3 stars, lose the cops, reach the safehouse', reward: 1000 },
+// Facade colours: sun-bleached pastels with a few saturated accents.
+export const FACADES = [
+  0xf2e2cb, 0xe9d9c6, 0xf6e8d7, 0xd9e5e6, 0xe6ded1, 0xf0d9c0,
+  0xdce8e2, 0xe8d5cd, 0xf5e6bd, 0xd6dce4, 0xe9dfd5, 0xf1d3bb,
 ];
 
-export const roadCoord = (i) => -CFG.grid * CFG.block / 2 + i * CFG.block;
-export const nearestRoad = (v) => Math.max(0, Math.min(CFG.grid, Math.round((v + CFG.extent) / CFG.block)));
-export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-export const lerp = (a, b, t) => a + (b - a) * t;
-export const dist2 = (ax, az, bx, bz) => (ax - bx) ** 2 + (az - bz) ** 2;
+export const CAR_COLORS = [
+  0xe8483c, 0x2fa8c9, 0xf2b63c, 0x38b879, 0x7c6de1, 0xf1f0e8,
+  0xe4792e, 0x394a63, 0xd94f88, 0x9bbf3d,
+];
+
+export const PALETTE = {
+  skyTop: 0x2f6fb5,
+  skyHorizon: 0xffd2a1,
+  sun: 0xffd98a,
+  fog: 0xe8c9a5,
+  sand: 0xe8d6aa,
+  road: 0x454b55,
+  roadLine: 0xf4e6c8,
+  sidewalk: 0xcac7bb,
+  ocean: 0x1687ad,
+  oceanDeep: 0x0b5678,
+  foam: 0xd9f3ef,
+  leaf: 0x2f8d63,
+  trunk: 0x8c6239,
+  metal: 0x222935,
+};
+
+// Fixed landmarks, also used by the minimap and mission markers.
+export const PLACES = {
+  targetCar: { x: 30, z: -30 },
+  garage: { x: 150, z: 150 },
+  safehouse: { x: -150, z: 150 },
+  checkpoints: [
+    { x: -150, z: -150 }, { x: 90, z: -150 }, { x: 150, z: -30 },
+    { x: 90, z: 150 }, { x: -90, z: 90 }, { x: -150, z: -30 },
+  ],
+  weapon: { x: -30, z: 90 },
+  health: { x: 90, z: 30 },
+};

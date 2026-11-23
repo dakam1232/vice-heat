@@ -2,127 +2,136 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:,">
-<title>VICE HEAT</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vice Heat — open-world crime game</title>
 <style>
-  :root { --gold:#ffd257; --hot:#ff6b4a; --ice:#7ee4ff; --ink:#101722; }
-  * { box-sizing:border-box; }
-  html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#101722; color:#fff;
-    font-family: 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif; user-select:none; }
-  #view { display:block; width:100vw; height:100vh; }
-  #ui { position:fixed; inset:0; pointer-events:none; }
+  :root { --gold:#ffd25e; --ink:#0e1622; --glass:rgba(12,22,34,.72); --line:rgba(255,224,160,.28); }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#16283a;
+    font-family:ui-sans-serif,system-ui,"Segoe UI",Arial,sans-serif; color:#fff; user-select:none; }
+  #view { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #hud { position:fixed; inset:0; pointer-events:none; z-index:5; }
+  .panel { background:var(--glass); border:1px solid var(--line); border-radius:12px;
+    backdrop-filter:blur(9px); box-shadow:0 6px 26px rgba(0,0,0,.28); }
+  #vitals { position:absolute; left:22px; top:20px; width:250px; padding:13px 15px; }
+  .label { font-size:10px; letter-spacing:.19em; text-transform:uppercase; color:#f5dcae; opacity:.85; }
+  #healthTrack { margin-top:7px; height:11px; border-radius:6px; background:#2a3645; overflow:hidden; }
+  #healthBar { height:100%; width:100%; border-radius:6px; background:linear-gradient(90deg,#ff5b5b,#ffb45b,#8ce07a); transition:width .2s; }
+  #cash { margin-top:10px; font-size:24px; font-weight:800; color:var(--gold); text-shadow:0 2px 8px #0008; }
+  #weapon { margin-top:3px; font-size:12px; color:#dce9f3; }
+  #mission { position:absolute; left:50%; top:18px; transform:translateX(-50%); padding:10px 18px;
+    font-size:12px; font-weight:700; letter-spacing:.02em; text-align:center; max-width:40vw; color:#fff4d4; }
+  #mission .label { display:block; margin-bottom:2px; }
+  #wanted { position:absolute; right:22px; top:20px; padding:12px 16px; min-width:206px; text-align:right; }
+  #stars { font-size:25px; letter-spacing:3px; color:var(--gold); text-shadow:0 0 14px #ffb13c88; line-height:1.1; }
+  #bustedTrack { margin-top:9px; height:7px; border-radius:4px; background:#2a3645; overflow:hidden; }
+  #bustedBar { height:100%; width:0%; background:linear-gradient(90deg,#f3d35b,#e8483c); }
+  #bustedLabel { font-size:10px; margin-top:4px; color:#ffb3a5; letter-spacing:.12em; }
+  #mapWrap { position:absolute; right:22px; bottom:22px; width:150px; height:150px; padding:5px; }
+  #minimap { width:138px; height:138px; display:block; border-radius:7px; }
+  #speed { position:absolute; left:22px; bottom:22px; padding:11px 17px; display:none; }
+  #speed b { font-size:29px; color:#fff; font-variant-numeric:tabular-nums; }
+  #speed span { font-size:11px; color:#f3d7a4; margin-left:5px; letter-spacing:.1em; }
+  #notice { position:absolute; left:50%; bottom:64px; transform:translateX(-50%); padding:8px 18px;
+    font-size:14px; font-weight:700; color:#fff6dd; opacity:0; transition:opacity .25s; white-space:nowrap; }
+  #hint { position:absolute; right:22px; bottom:182px; font-size:10px; text-align:right; line-height:1.6;
+    color:#fff; text-shadow:0 1px 5px #000; padding:6px 9px; border-radius:8px; background:rgba(12,22,34,.55); }
+  #crosshair { position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px; border-radius:50%;
+    background:#fff9; box-shadow:0 0 6px #000a; }
+  .screen { position:fixed; inset:0; z-index:10; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(90deg,rgba(8,19,32,.84),rgba(8,19,32,.22) 62%,rgba(8,19,32,.05)); }
   .hidden { display:none !important; }
-
-  #hud { position:absolute; inset:0; }
-  .panel { background:rgba(12,20,32,.62); border:1px solid rgba(255,255,255,.16); border-radius:10px;
-    backdrop-filter:blur(6px); box-shadow:0 8px 30px rgba(0,0,0,.28); }
-  #status { position:absolute; left:24px; top:20px; width:278px; padding:12px 14px; }
-  .label { font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:#bfd2e0; }
-  #healthTrack { height:10px; margin:6px 0 10px; background:rgba(255,255,255,.13); border-radius:6px; overflow:hidden; }
-  #healthFill { height:100%; width:100%; background:linear-gradient(90deg,#ff6b4a,#ffd257); transition:width .15s; }
-  #stars { font-size:20px; letter-spacing:3px; color:rgba(255,255,255,.26); height:25px; }
-  #stars b { color:var(--gold); text-shadow:0 0 12px rgba(255,190,60,.7); font-weight:normal; }
-  #bustTrack { height:4px; margin-top:5px; background:rgba(255,255,255,.12); border-radius:4px; overflow:hidden; }
-  #bustFill { height:100%; width:0; background:#ff5545; }
-  #missionBox { position:absolute; left:24px; top:146px; max-width:410px; padding:10px 14px; font-size:13px; color:#fff4d8; line-height:1.35; }
-  #missionBox .label { color:var(--gold); margin-bottom:4px; }
-  #money { position:absolute; right:24px; top:20px; padding:10px 16px; font-size:22px; font-weight:bold; color:var(--gold); letter-spacing:.05em; }
-  #notify { position:absolute; left:50%; top:96px; transform:translateX(-50%); text-align:center; font-size:16px;
-    font-weight:bold; color:#fff; text-shadow:0 2px 12px #000, 0 0 22px rgba(255,150,60,.55); letter-spacing:.04em; }
-  #speedBox { position:absolute; left:24px; bottom:24px; padding:8px 16px; display:flex; align-items:baseline; gap:8px; }
-  #speed { font-size:34px; font-weight:bold; color:var(--ice); min-width:60px; }
-  #speedBox .label { color:#bcd; }
-  #mapBox { position:absolute; right:24px; bottom:24px; width:196px; height:196px; padding:5px; border-radius:50%; overflow:hidden; }
-  #minimap { width:184px; height:184px; border-radius:50%; display:block; background:#16222e; }
-  #hint { position:absolute; bottom:30px; left:50%; transform:translateX(-50%); font-size:12px; color:rgba(255,255,255,.7); text-shadow:0 1px 4px #000; }
-  #crosshair { position:absolute; left:50%; top:50%; width:16px; height:16px; margin:-8px; opacity:.8; }
-  #crosshair:before,#crosshair:after { content:''; position:absolute; background:#fff; }
-  #crosshair:before { left:7px; top:0; width:2px; height:16px; }
-  #crosshair:after { top:7px; left:0; height:2px; width:16px; }
-
-  .screen { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column;
-    text-align:center; background:linear-gradient(160deg,rgba(10,18,32,.35),rgba(10,18,32,.82)); pointer-events:auto; }
-  .card { padding:34px 52px; border-radius:16px; background:rgba(9,17,29,.78); border:1px solid rgba(255,210,87,.28);
-    box-shadow:0 24px 80px rgba(0,0,0,.5); max-width:680px; }
-  .title { font-size:76px; font-weight:900; letter-spacing:.1em; line-height:.95; margin:0;
-    background:linear-gradient(180deg,#fff3c4,#ffb347 55%,#ff5b46); -webkit-background-clip:text; background-clip:text; color:transparent;
-    filter:drop-shadow(0 6px 16px rgba(0,0,0,.5)); }
-  .subtitle { margin:10px 0 26px; font-size:13px; letter-spacing:.42em; color:#ffd257; text-transform:uppercase; }
-  .controls { display:grid; grid-template-columns:repeat(2,1fr); gap:7px 30px; margin:22px auto; font-size:13px; color:#dbe7ef; text-align:left; max-width:500px; }
-  .controls span { color:var(--gold); font-weight:bold; margin-right:8px; }
-  button { pointer-events:auto; cursor:pointer; border:0; border-radius:8px; padding:13px 34px; margin:6px;
-    font:bold 15px 'Trebuchet MS',sans-serif; letter-spacing:.12em; text-transform:uppercase;
-    background:linear-gradient(180deg,#ffd257,#ff9f43); color:#241504; box-shadow:0 6px 22px rgba(255,150,50,.3); }
-  button:hover { filter:brightness(1.1); }
-  button.alt { background:rgba(255,255,255,.12); color:#fff; box-shadow:none; border:1px solid rgba(255,255,255,.2); }
-  .big { font-size:54px; font-weight:900; letter-spacing:.12em; margin:0 0 12px; }
-  .busted .big { color:#ff6b4a; } .wasted .big { color:#ff4d4d; }
-  .fine { color:#cbd8e2; font-size:15px; margin:6px 0 20px; }
-  #muteTag { position:absolute; right:24px; top:70px; font-size:11px; letter-spacing:.18em; color:#cfe2ee; }
+  .card { width:min(540px,90vw); padding:30px 34px; background:rgba(10,21,33,.7);
+    border:1px solid rgba(255,213,110,.35); border-radius:18px; backdrop-filter:blur(12px);
+    box-shadow:0 22px 70px #0009; }
+  .logo { font-size:clamp(48px,8vw,92px); line-height:.92; font-weight:900; letter-spacing:-.03em;
+    color:#fff3d2; text-shadow:3px 4px 0 #c9552f, 0 0 40px #ffbd5d55; }
+  .logo em { font-style:normal; color:var(--gold); }
+  .tag { margin:14px 0 24px; color:#ffdca3; font-size:14px; letter-spacing:.22em; text-transform:uppercase; }
+  .btn { pointer-events:auto; display:inline-block; margin:6px 8px 6px 0; padding:13px 26px; border:0;
+    border-radius:9px; font:inherit; font-weight:800; font-size:14px; cursor:pointer; letter-spacing:.05em;
+    background:linear-gradient(135deg,#ffd564,#f09232); color:#2a1d10; box-shadow:0 6px 20px #0006; }
+  .btn:hover { filter:brightness(1.1); transform:translateY(-1px); }
+  .btn.alt { background:#284055; color:#f4e5c6; border:1px solid #ffffff33; }
+  .controls { margin-top:22px; display:grid; grid-template-columns:1fr 1fr; gap:7px 22px;
+    font-size:12px; color:#d9e6ee; }
+  .controls b { display:inline-block; min-width:78px; color:var(--gold); }
+  .fine { margin-top:22px; font-size:11px; color:#a8bac9; letter-spacing:.06em; }
+  .bigmsg { font-size:44px; font-weight:900; letter-spacing:.04em; color:#fff0cf; }
+  .sub { margin:12px 0 22px; color:#d7e0e8; font-size:14px; line-height:1.6; }
+  #toast { position:fixed; left:50%; top:22%; transform:translateX(-50%); z-index:12; pointer-events:none;
+    padding:15px 28px; font-size:19px; font-weight:900; color:#2a1d10; background:#ffd867;
+    border-radius:10px; box-shadow:0 10px 30px #0008; opacity:0; transition:opacity .3s, top .3s; }
+  #toast.show { opacity:1; top:19%; }
 </style>
-<script type="importmap">{ "imports": { "three": "./three.module.min.js" } }</script>
 </head>
 <body>
 <canvas id="view"></canvas>
-<div id="ui">
-  <div id="hud" class="hidden">
-    <div id="status" class="panel">
-      <div class="label">Health</div>
-      <div id="healthTrack"><div id="healthFill"></div></div>
-      <div id="stars"></div>
-      <div id="bustTrack"><div id="bustFill"></div></div>
-    </div>
-    <div id="missionBox" class="panel"><div class="label">Current job</div><div id="missionText"></div></div>
-    <div id="money" class="panel">$<span id="cash">0</span></div>
-    <div id="speedBox" class="panel"><div id="speed">0</div><div class="label">KM/H</div></div>
-    <div id="mapBox" class="panel"><canvas id="minimap" width="184" height="184"></canvas></div>
-    <div id="notify"></div>
-    <div id="hint">WASD drive &middot; E enter/exit &middot; F/fire &middot; K save &middot; L load &middot; Esc pause &middot; M mute</div>
-    <div id="crosshair" class="hidden"></div>
-    <div id="muteTag"></div>
-  </div>
 
-  <div id="title" class="screen">
-    <div class="card">
-      <h1 class="title">VICE HEAT</h1>
-      <div class="subtitle">Sun, sand &amp; a whole lot of trouble</div>
-      <div>
-        <button id="playBtn">New Game</button>
-        <button id="continueBtn" class="alt hidden">Continue</button>
-      </div>
-      <div class="controls">
-        <div><span>WASD</span>Move / drive</div><div><span>SHIFT</span>Run</div>
-        <div><span>E</span>Carjack / exit</div><div><span>F / Click</span>Punch / shoot</div>
-        <div><span>Mouse</span>Look around</div><div><span>K / L</span>Save / load</div>
-        <div><span>ESC</span>Pause</div><div><span>M</span>Mute</div>
-      </div>
-      <div class="fine">Three jobs. Five stars. One city that never cools down.</div>
-    </div>
+<div id="hud" class="hidden">
+  <div id="vitals" class="panel">
+    <div class="label">Health</div>
+    <div id="healthTrack"><div id="healthBar"></div></div>
+    <div id="cash">$250</div>
+    <div id="weapon">Fists · K save / L load · M mute</div>
   </div>
-
-  <div id="pause" class="screen hidden">
-    <div class="card"><h2 class="big">PAUSED</h2>
-      <div class="fine">The city can wait.</div>
-      <button id="resumeBtn">Resume</button><button id="saveBtn" class="alt">Save Game</button>
-      <button id="quitBtn" class="alt">Title Screen</button>
-    </div>
+  <div id="mission" class="panel"><span class="label">Current job</span><span id="missionText">—</span></div>
+  <div id="wanted" class="panel">
+    <div class="label">Wanted</div>
+    <div id="stars">☆☆☆☆☆</div>
+    <div id="bustedTrack"><div id="bustedBar"></div></div>
+    <div id="bustedLabel">BUSTED METER</div>
   </div>
+  <div id="mapWrap" class="panel"><canvas id="minimap" width="344" height="344"></canvas></div>
+  <div id="hint">WASD move · Shift run<br>E enter / exit · F attack<br>Esc pause</div>
+  <div id="speed" class="panel"><b id="speedVal">0</b><span>KM/H</span></div>
+  <div id="notice" class="panel"></div>
+  <div id="crosshair"></div>
+</div>
 
-  <div id="busted" class="screen hidden busted">
-    <div class="card"><h2 class="big">BUSTED</h2>
-      <div class="fine">You got boxed in. A $200 fine buys you another chance.</div>
-      <button id="bustBtn">Pay &amp; Respawn</button>
+<div id="title" class="screen">
+  <div class="card">
+    <div class="logo">VICE <em>HEAT</em></div>
+    <div class="tag">Sun, speed &amp; trouble on the coast</div>
+    <button id="playBtn" class="btn">CLICK TO PLAY</button>
+    <button id="continueBtn" class="btn alt hidden">CONTINUE</button>
+    <div class="controls">
+      <div><b>WASD</b> walk / drive</div><div><b>Mouse</b> orbit camera</div>
+      <div><b>Shift</b> run</div><div><b>E</b> carjack / exit</div>
+      <div><b>F / click</b> punch or shoot</div><div><b>Space</b> handbrake</div>
+      <div><b>K / L</b> save / load</div><div><b>M / Esc</b> mute / pause</div>
     </div>
-  </div>
-
-  <div id="wasted" class="screen hidden wasted">
-    <div class="card"><h2 class="big">WASTED</h2>
-      <div class="fine">The pavement won. But the city never forgets.</div>
-      <button id="wastedBtn">Respawn</button>
-    </div>
+    <div class="fine">Three jobs. Five stars. One very hot afternoon. Original game — no real people, brands or places.</div>
   </div>
 </div>
+
+<div id="pause" class="screen hidden">
+  <div class="card" style="width:min(440px,90vw)">
+    <div class="bigmsg">PAUSED</div>
+    <div class="sub">The city waits. Your engine is still warm.</div>
+    <button id="resumeBtn" class="btn">RESUME</button>
+    <button id="saveBtn" class="btn alt">SAVE (K)</button>
+    <button id="loadBtn" class="btn alt">LOAD (L)</button>
+  </div>
+</div>
+
+<div id="busted" class="screen hidden">
+  <div class="card" style="width:min(480px,90vw)">
+    <div class="bigmsg">BUSTED</div>
+    <div class="sub">Blue lights, hard questions, a $250 fine. They let you go — for now.</div>
+    <button id="bustedBtn" class="btn">PAY FINE &amp; RESPAWN</button>
+  </div>
+</div>
+
+<div id="wasted" class="screen hidden">
+  <div class="card" style="width:min(480px,90vw)">
+    <div class="bigmsg">WASTED</div>
+    <div class="sub">The pavement won. A good story always needs a comeback.</div>
+    <button id="wastedBtn" class="btn">RESPAWN AT HOSPITAL</button>
+  </div>
+</div>
+
+<div id="toast"></div>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

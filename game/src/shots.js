@@ -1,104 +1,80 @@
-// Deterministic composition of the four capture scenes.
-import { RNG } from './random.js';
-import { CFG, roadCoord } from './config.js';
-import { makeCar, makePerson } from './entities.js';
+// Deterministic scene recipes for the four ?shot= states used by the screenshots.
+// Each recipe sets the camera and the world so one frame tells the whole story.
+import { createCar } from './entities.js';
 
-function addInput(world, rng, x, z, angle, color = null) {
-  const mesh = makeCar(rng, color ? { color } : {});
-  mesh.setPos(x, z, angle);
-  world.scene.add(mesh.group);
-  const c = { mesh, x, z, angle, speed: 0, health: 100 };
-  world.cars.push(c);
-  return c;
-}
+export function applyShot(world, renderer, shot) {
+  if (!shot) return null;
+  world.shotMode = true;
+  world.shotCameraBias = 0;
 
-function addPed(world, rng, x, z) {
-  const mesh = makePerson(rng);
-  mesh.group.position.set(x, 0, z);
-  world.scene.add(mesh.group);
-  world.peds.push({ mesh, x, z, angle: rng.float(0, 6.28), speed: rng.float(1, 2), panic: 0, target: world.sidewalkSpot(), hp: 1 });
-}
-
-function coastalCar(world, rng, x, z, color, speed = 24) {
-  const car = addInput(world, rng, x, z, Math.PI / 2, color);
-  car.speed = speed;
-  car.ni = undefined;
-  return car;
-}
-
-export function setupShot(name, seed, world, view) {
-  const rng = new RNG(seed);
-  const r = roadCoord;
-  view.mode = 'follow';
-  world.state = 'playing';
-
-  if (name === 'start') {
-    world.state = 'title';
-    view.mode = 'manual';
-    view.camera.position.set(-150, 68, -115);
-    view.camera.lookAt(40, 8, 260);
-    view.screen('title');
-    view.el.continue.classList.toggle('hidden', !world.constructor.hasSave());
-    return { yaw: 0, pitch: 0 };
+  if (shot === 'start') {
+    world.player.root.position.set(-30, 0, -12);
+    world.player.root.visible = true;
+    world.playerHeading = Math.PI * 0.62;
+    world.player.root.rotation.y = world.playerHeading;
+    renderer.title(0, true);
+    return 'title';
   }
 
-  if (name === 'play') {
-    world.player.x = r(5) + 1.2;
-    world.player.z = r(5) + 3.2;
-    world.player.angle = 0.12;
-    world.player.cash = 340;
-    world.player.armed = false;
-    world.setStars(0);
-    world.syncFigure();
-    world.figure.animate(0.2, 3, 0.12);
-    for (let k = 0; k < 8; k++) {
-      const a = rng.float(0, 6.28), d = rng.float(7, 20);
-      addPed(world, rng, world.player.x + Math.sin(a) * d, world.player.z + Math.cos(a) * d);
+  if (shot === 'play') {
+    world.player.root.position.set(-30, 0, 26);
+    world.player.root.visible = true;
+    world.playerHeading = Math.PI;
+    world.player.root.rotation.y = world.playerHeading;
+    world.camYaw = Math.PI - 0.24;
+    world.camPitch = 0.02;
+    // Park a few cars down the street; frozen so the deterministic scene holds still.
+    const cars = [
+      [-33.6, 6, 0], [-26.4, -22, Math.PI], [-33.6, -48, Math.PI],
+    ];
+    world.traffic.slice(0, 3).forEach((t, i) => {
+      t.frozen = true;
+      t.heading = cars[i][2];
+      t.car.group.position.set(cars[i][0], 0, cars[i][1]);
+      t.car.group.rotation.y = cars[i][2];
+    });
+    const spots = [[-39.3, 19], [-20.7, 8], [-39.3, -4], [-20.7, -16]];
+    world.peds.slice(0, 4).forEach((ped, i) => {
+      ped.frozen = true;
+      ped.pos.set(spots[i][0], 0, spots[i][1]);
+      ped.fig.root.position.set(spots[i][0], 0, spots[i][1]);
+      ped.fig.root.rotation.y = i % 2 ? 0 : Math.PI;
+    });
+    renderer.foot(world.player.root.position, world.camYaw, world.camPitch, true);
+    return 'game';
+  }
+
+  if (shot === 'drive' || shot === 'chase') {
+    const fast = shot === 'chase';
+    const car = createCar({ color: fast ? 0xe8483c : 0xf7f2e6, convertible: true });
+    const x = fast ? 46 : -52;
+    car.group.position.set(x, 0, -210);
+    world.scene.add(car.group);
+    const speed = fast ? 33 : 26;
+    const entry = { car, heading: Math.PI / 2, speed: 0, isTarget: false };
+    world.enterCar(entry, false);
+    entry.speed = speed;
+    world.camYaw = Math.PI / 2;
+    world.shotCameraBias = fast ? -7 : -17;
+    if (fast) {
+      world.addWanted(3);
+      world.syncPolice();
+      const spots = [[x + 13, -203], [x + 26, -219], [x + 44, -205]];
+      world.police.forEach((pol, i) => {
+        pol.car.group.position.set(spots[i][0], 0, spots[i][1]);
+        pol.heading = -Math.PI / 2;
+        pol.speed = 26;
+        pol.frozen = true;
+        pol.car.group.rotation.y = pol.heading;
+      });
     }
-    const c = addInput(world, rng, r(5) + 4.4, r(5) - 8, 0xffd43b);
-    c.speed = 9;
-    const c2 = addInput(world, rng, r(6) - 4.4, r(5) + 12, 0x2e86c1);
-    c2.speed = -8;
-    view.screen(null);
-    return { yaw: 0.12, pitch: -0.16 };
+    renderer.chase(car.group.position, entry.heading, entry.speed, true, world.shotCameraBias);
+    return 'game';
   }
+  return null;
+}
 
-  if (name === 'drive') {
-    const road = r(9) - 4;
-    const car = coastalCar(world, rng, -26, road, 0xffc23b, 26);
-    world.player.inCar = car;
-    world.player.x = car.x; world.player.z = car.z;
-    world.player.cash = 1250;
-    world.setStars(0);
-    world.figure.setVisible(false);
-    addInput(world, rng, 22, road + 4.3, 0xf2f3f4).speed = 12;
-    addInput(world, rng, -78, road - 4.3, 0xe84b3c).speed = 10;
-    for (let k = 0; k < 4; k++) addPed(world, rng, 30 + k * 11, r(10) - 8 + rng.float(-2, 2));
-    view.screen(null);
-    return { yaw: Math.PI / 2, pitch: -0.06 };
-  }
-
-  if (name === 'chase') {
-    const road = r(9) - 4;
-    const car = coastalCar(world, rng, -18, road, 0xffc23b, 31);
-    world.player.inCar = car;
-    world.player.x = car.x; world.player.z = car.z;
-    world.player.cash = 640;
-    world.setStars(3);
-    world.figure.setVisible(false);
-    // Ahead and flanking police cars make the pursuit readable from the chase camera.
-    const spots = [[12, road - 3.4], [28, road + 3.6], [42, road - 3.5], [3, road + 5.4]];
-    for (const [x, z] of spots) {
-      const mesh = makeCar(rng, { police: true });
-      mesh.setPos(x, z, x < car.x ? Math.PI / 2 : -Math.PI / 2);
-      mesh.animate(0.08, 0);
-      world.scene.add(mesh.group);
-      world.police.push({ mesh, x, z, angle: x < car.x ? Math.PI / 2 : -Math.PI / 2, speed: 22, hp: 100, stuck: 0 });
-    }
-    addInput(world, rng, 56, road + 4.3, 0x8e6ccf).speed = 11;
-    view.screen(null);
-    return { yaw: Math.PI / 2, pitch: -0.02 };
-  }
-
-  return { yaw: 0, pitch: 0 };
+export function shotSeed(params) {
+  const raw = Number(params.get('seed'));
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 1;
 }

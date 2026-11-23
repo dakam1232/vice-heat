@@ -1,153 +1,178 @@
-// VICE HEAT - bootstrap, game loop, screens and a small test/debug surface.
-import * as THREE from 'three';
-import { CFG, clamp } from './config.js';
-import { RNG } from './random.js';
-import { AudioSystem } from './audio.js';
+// Boot, UI screens, HUD, autosave and the main loop. The game owns no external assets.
+import { AudioKit } from './audio.js';
 import { Input } from './input.js';
-import { buildCity } from './city.js';
-import { World } from './world.js';
-import { View } from './render.js';
-import { setupShot } from './shots.js';
+import { Renderer3D, drawMinimap } from './render.js';
+import { GameWorld } from './world.js';
+import { applyShot, shotSeed } from './shots.js';
 
+const $ = (id) => document.getElementById(id);
+const canvas = $('view');
 const params = new URLSearchParams(location.search);
 const shot = params.get('shot');
-const seed = Number(params.get('seed')) || 1;
+const seed = shotSeed(params);
+const SAVE_KEY = 'vice_heat_save_v1';
 
-const canvas = document.getElementById('view');
-const scene = new THREE.Scene();
-const city = buildCity(scene, new RNG(seed * 7 + 3));
-const audio = new AudioSystem();
-const world = new World(scene, city, new RNG(seed * 131 + 17), audio);
-const view = new View(canvas);
-view.attach(scene);
+const audio = new AudioKit();
+const renderer = new Renderer3D(canvas);
+const world = new GameWorld(renderer.scene, seed, audio);
 const input = new Input(canvas);
-input.gesture = () => audio.unlock();
 
-let yaw = 0.35;
-let pitch = -0.14;
-let last = 0;
+let screen = 'title';
+let firstFrame = true;
 let frames = 0;
-let ready = false;
+let autosave = 0;
+let toastTimer = 0;
 
-if (shot) {
-  const result = setupShot(shot, seed, world, view);
-  yaw = result.yaw;
-  pitch = result.pitch;
+function setScreen(name) {
+  screen = name;
+  for (const id of ['title', 'pause', 'busted', 'wasted']) $(id).classList.toggle('hidden', id !== name);
+  $('hud').classList.toggle('hidden', name === 'title');
+  input.enabled = name === 'game';
+  if (name !== 'game') input.unlock();
+}
+
+function showToast(text) {
+  const el = $('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  toastTimer = 4.5;
+}
+
+function save() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(world.saveState()));
+    showToast('GAME SAVED');
+    return true;
+  } catch {
+    showToast('SAVE FAILED');
+    return false;
+  }
+}
+
+function load() {
+  try {
+    const data = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    if (!data) { showToast('NO SAVE FOUND'); return false; }
+    world.loadState(data);
+    setScreen('game');
+    showToast('GAME LOADED');
+    return true;
+  } catch {
+    showToast('LOAD FAILED');
+    return false;
+  }
 }
 
 function startGame() {
-  audio.unlock();
-  world.state = 'playing';
-  world.messages = [];
-  view.mode = 'follow';
-  view.screen(null);
+  audio.ensure();
+  setScreen('game');
+  input.lock();
+  world.message('STEAL THE MARKED CAR · follow the yellow marker', 5);
 }
 
-function continueGame() {
-  const data = World.load();
-  if (!data) { startGame(); return; }
-  audio.unlock();
-  world.restore(data);
-  world.state = 'playing';
-  view.mode = 'follow';
-  view.screen(null);
-  world.notify('Save loaded');
+function respawn(fine) {
+  if (fine) world.state.cash = Math.max(0, world.state.cash - 250);
+  world.state.health = 100;
+  world.state.wanted = 0;
+  world.state.busted = 0;
+  if (world.vehicle) {
+    world.scene.remove(world.vehicle.car.group);
+    world.vehicle = null;
+    world.state.mode = 'foot';
+    world.player.root.visible = true;
+  }
+  world.player.root.position.set(-30, 0, 4);
+  world.playerHeading = Math.PI;
+  world.syncPolice();
+  setScreen('game');
+  audio.policeSiren(false);
 }
 
-function pauseGame() {
-  if (world.state !== 'playing') return;
-  world.state = 'paused';
-  audio.setEngine(0, false);
-  view.screen('pause');
-}
-function resumeGame() {
-  if (world.state !== 'paused') return;
-  world.state = 'playing';
-  view.screen(null);
-}
+world.onBusted = () => { audio.busted(); setScreen('busted'); };
+world.onWasted = () => { if (screen !== 'wasted') { audio.hurt(); setScreen('wasted'); } };
+world.onMission = (text) => showToast(text);
 
-world.onEvent = (kind) => {
-  if (kind === 'busted') view.screen('busted');
-  if (kind === 'wasted') view.screen('wasted');
+$('playBtn').addEventListener('click', startGame);
+$('continueBtn').addEventListener('click', load);
+$('resumeBtn').addEventListener('click', () => { setScreen('game'); audio.ensure(); });
+$('saveBtn').addEventListener('click', save);
+$('loadBtn').addEventListener('click', load);
+$('bustedBtn').addEventListener('click', () => respawn(true));
+$('wastedBtn').addEventListener('click', () => respawn(false));
+
+input.onEscape = () => {
+  if (screen === 'game') setScreen('pause');
+  else if (screen === 'pause') setScreen('game');
 };
 
-document.getElementById('playBtn').addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
-document.getElementById('continueBtn').addEventListener('click', (e) => { e.stopPropagation(); continueGame(); });
-document.getElementById('resumeBtn').addEventListener('click', resumeGame);
-document.getElementById('saveBtn').addEventListener('click', () => { world.save(); resumeGame(); });
-document.getElementById('quitBtn').addEventListener('click', () => {
-  world.state = 'title';
-  view.screen('title');
-  view.el.continue.classList.toggle('hidden', !World.hasSave());
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyM') { audio.setMuted(!audio.muted); showToast(audio.muted ? 'MUTED' : 'SOUND ON'); }
+  if (e.code === 'KeyK' && screen === 'game') save();
+  if (e.code === 'KeyL' && screen === 'game') load();
+  if (e.code === 'KeyP') {
+    if (screen === 'game') setScreen('pause');
+    else if (screen === 'pause') setScreen('game');
+  }
 });
-document.getElementById('bustBtn').addEventListener('click', () => { world.respawn(); view.screen(null); });
-document.getElementById('wastedBtn').addEventListener('click', () => { world.respawn(); view.screen(null); });
-document.getElementById('title').addEventListener('click', (e) => {
-  if (e.target.tagName === 'BUTTON') return;
-  startGame();
-});
-if (!shot) view.el.continue.classList.toggle('hidden', !World.hasSave());
 
-function frame(now) {
-  const dt = last ? clamp((now - last) / 1000, 0, 0.05) : 0.016;
+try {
+  if (localStorage.getItem(SAVE_KEY)) $('continueBtn').classList.remove('hidden');
+} catch { /* private browsing: no Continue button */ }
+
+const shotScreen = shot ? applyShot(world, renderer, shot) : null;
+if (shotScreen) setScreen(shotScreen);
+
+function updateHud() {
+  const s = world.state;
+  $('healthBar').style.width = `${Math.max(0, s.health)}%`;
+  $('cash').textContent = `$${s.cash.toLocaleString('en-US')}`;
+  $('weapon').textContent = s.weapon
+    ? `Pistol · ${s.ammo} rounds · K save / L load · M mute`
+    : 'Fists · K save / L load · M mute';
+  $('missionText').textContent = world.missionText();
+  $('stars').textContent = '★'.repeat(s.wanted) + '☆'.repeat(5 - s.wanted);
+  $('bustedBar').style.width = `${Math.min(100, (s.busted / 6.5) * 100)}%`;
+  $('speed').style.display = world.mode === 'car' ? 'block' : 'none';
+  $('speedVal').textContent = String(Math.round(Math.abs(world.vehicle?.speed || 0) * 3.1));
+  $('hint').innerHTML = world.mode === 'car'
+    ? 'WASD steer / accelerate<br>Space handbrake · F fire<br>E exit · Esc pause'
+    : 'WASD move · Shift run<br>E enter / exit · F attack<br>Esc pause';
+  const note = $('notice');
+  note.textContent = s.notice;
+  note.style.opacity = s.noticeTimer > 0 ? '1' : '0';
+}
+
+let last = performance.now();
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
-  frames++;
 
-  if (input.pressed('Escape') || input.pressed('KeyP')) {
-    if (world.state === 'playing') pauseGame();
-    else if (world.state === 'paused') resumeGame();
-  }
-  if (input.pressed('KeyM')) audio.toggleMute();
-  if (input.pressed('KeyK') && (world.state === 'playing' || world.state === 'paused')) world.save();
-  if (input.pressed('KeyL')) continueGame();
+  if (shot || screen === 'game') world.update(dt, shot ? null : input);
+  if (screen === 'title') renderer.title(now / 1000, firstFrame);
+  else if (world.mode === 'car' && world.vehicle) renderer.chase(world.vehicle.car.group.position, world.vehicle.heading, world.vehicle.speed, firstFrame, world.shotCameraBias || 0);
+  else renderer.foot(world.player.root.position, world.camYaw, world.camPitch, firstFrame);
+  renderer.render();
 
-  if (!shot) {
-    yaw += input.yawDelta;
-    pitch = clamp(pitch + input.pitchDelta, -0.6, 0.4);
+  if (!shot && screen === 'game') {
+    autosave += dt;
+    if (autosave > 30) { autosave = 0; try { localStorage.setItem(SAVE_KEY, JSON.stringify(world.saveState())); } catch {} }
   }
-  world.update(shot ? 0 : dt, input, yaw);
-  view.updateCamera(world, yaw, pitch, dt, frames < 2);
-  if (shot) city.update(4.2);
-  else city.update(world.time);
-  view.hud(world, audio.muted);
-  view.minimap(world);
-  view.render();
+  if (toastTimer > 0) {
+    toastTimer -= dt;
+    if (toastTimer <= 0) $('toast').classList.remove('show');
+  }
+  if (screen !== 'title') {
+    updateHud();
+    if (frames % 3 === 0) drawMinimap($('minimap'), world);
+  }
+  if (shot && firstFrame) window.__shotReady = true;
   input.endFrame();
-
-  if (shot && !ready && frames >= 3) {
-    ready = true;
-    window.__shotReady = true;
-  }
-  requestAnimationFrame(frame);
+  firstFrame = false;
+  frames++;
 }
-requestAnimationFrame(frame);
+requestAnimationFrame(loop);
 
-// Test surface: lets a headless browser drive a real play session through the same code paths.
-window.__game = {
-  world, view, input, audio, city, THREE,
-  shot,
-  start: startGame,
-  continue: continueGame,
-  pause: pauseGame,
-  resume: resumeGame,
-  teleport(x, z) {
-    if (world.player.inCar) { world.player.inCar.x = x; world.player.inCar.z = z; world.player.inCar.mesh.setPos(x, z, world.player.inCar.angle); }
-    else { world.player.x = x; world.player.z = z; world.syncFigure(); }
-  },
-  enter: () => world.interact(),
-  setStars: (n) => world.setStars(n),
-  completeMission: () => world.completeMission(),
-  press: (code) => input.press(code),
-  release: (code) => input.release(code),
-  save: () => world.save(),
-  load: () => continueGame(),
-  tick: (seconds = 1) => new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
-  state: () => ({
-    state: world.state,
-    player: { x: world.player.x, z: world.player.z, health: world.player.health, cash: world.player.cash,
-      stars: world.player.stars, armed: world.player.armed, inCar: !!world.player.inCar },
-    mission: { ...world.mission },
-    cars: world.cars.length, police: world.police.length, peds: world.peds.length,
-    ready: !!window.__shotReady, frames,
-  }),
-};
+// Small automation surface, also handy when play-testing the build in a browser.
+window.__vh = { world, renderer, input, audio, startGame, save, load, respawn,
+  get screen() { return screen; }, setScreen };

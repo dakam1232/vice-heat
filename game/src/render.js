@@ -1,143 +1,134 @@
-// Camera, WebGL presentation, HUD and the canvas minimap.
-import * as THREE from 'three';
-import { CFG, roadCoord, clamp } from './config.js';
+// Three.js renderer, three camera rigs (cinematic / on-foot / chase) and the canvas minimap.
+import * as THREE from '../three.module.min.js';
+import { CFG, PALETTE } from './config.js';
 
-const $ = (id) => document.getElementById(id);
-
-export class View {
+export class Renderer3D {
   constructor(canvas) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    this.canvas = canvas;
+    this.renderer = new THREE.WebGLRenderer({
+      canvas, antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance',
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.16;
-    this.camera = new THREE.PerspectiveCamera(62, 1, 0.2, 2400);
-    this.scene = null;
-    this.mode = 'follow';
-    this.resize();
-    window.addEventListener('resize', () => this.resize());
-    this.mapCtx = $('minimap').getContext('2d');
-    this.el = {
-      hud: $('hud'), title: $('title'), pause: $('pause'), busted: $('busted'), wasted: $('wasted'),
-      health: $('healthFill'), stars: $('stars'), cash: $('cash'), speed: $('speed'), speedBox: $('speedBox'),
-      mission: $('missionText'), notify: $('notify'), bust: $('bustFill'), crosshair: $('crosshair'),
-      mute: $('muteTag'), continue: $('continueBtn'),
-    };
-    this._tmp = new THREE.Vector3();
+    this.renderer.toneMappingExposure = 1.42;
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(PALETTE.skyHorizon);
+    this.camera = new THREE.PerspectiveCamera(63, window.innerWidth / window.innerHeight, 0.4, 2200);
+    this.camera.position.set(0, 20, 40);
+    this.tmp = new THREE.Vector3();
+    this.look = new THREE.Vector3();
+    window.addEventListener('resize', () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(w, h, false);
+    });
   }
 
-  attach(scene) { this.scene = scene; }
-
-  resize() {
-    const w = window.innerWidth, h = window.innerHeight;
-    this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / Math.max(1, h);
-    this.camera.updateProjectionMatrix();
+  title(t, instant = false) {
+    const a = t * 0.045;
+    const p = this.tmp.set(Math.sin(a) * 34 + 32, 45 + Math.sin(a * 0.6) * 4, -84 + Math.cos(a) * 12);
+    if (instant) this.camera.position.copy(p);
+    else this.camera.position.lerp(p, 0.035);
+    this.look.set(-16, 12, -205);
+    this.camera.lookAt(this.look);
   }
 
-  updateCamera(world, yaw, pitch, dt, snap = false) {
-    if (this.mode === 'manual') return;
-    const f = world.getFocus();
-    const heading = f.inCar ? f.angle : yaw;
-    const dist = f.inCar ? 13.5 : 10.6;
-    const height = f.inCar ? 5.4 : 4.25;
-    const cp = Math.cos(pitch * 0.55);
-    const want = this._tmp.set(
-      f.x - Math.sin(heading) * dist * cp,
-      f.y + height + Math.sin(pitch) * 8,
-      f.z - Math.cos(heading) * dist * cp,
-    );
-    if (snap) this.camera.position.copy(want);
-    else this.camera.position.lerp(want, 1 - Math.exp(-dt * 5.5));
-    this.camera.lookAt(f.x + Math.sin(heading) * (f.inCar ? 7 : 1.6), f.y + 0.95, f.z + Math.cos(heading) * (f.inCar ? 7 : 1.6));
+  foot(pos, yaw, pitch, instant = false) {
+    const f = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const desired = this.tmp.copy(pos).addScaledVector(f, -8.4);
+    desired.y += 4.25 + pitch * 5;
+    if (instant) this.camera.position.copy(desired);
+    else this.camera.position.lerp(desired, 0.16);
+    this.look.copy(pos).addScaledVector(f, 2.4);
+    this.look.y = pos.y + 1.65 - pitch * 1.6;
+    this.camera.lookAt(this.look);
   }
 
-  render() { this.renderer.render(this.scene, this.camera); }
-
-  screen(name) {
-    for (const k of ['title', 'pause', 'busted', 'wasted']) this.el[k].classList.toggle('hidden', k !== name);
-    this.el.hud.classList.toggle('hidden', name === 'title');
+  chase(pos, heading, speed, instant = false, biasZ = 0) {
+    const f = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
+    const distance = 10.6 + Math.min(4, Math.abs(speed) * 0.12);
+    const desired = this.tmp.copy(pos).addScaledVector(f, -distance);
+    desired.y += 4.9;
+    if (instant) this.camera.position.copy(desired);
+    else this.camera.position.lerp(desired, 0.12);
+    this.look.copy(pos).addScaledVector(f, 8);
+    this.look.y = pos.y + 1.5;
+    this.look.z += biasZ;
+    this.camera.lookAt(this.look);
   }
 
-  hud(world, muted) {
-    const p = world.player;
-    const e = this.el;
-    e.health.style.width = `${p.health}%`;
-    let stars = '';
-    for (let i = 0; i < CFG.maxStars; i++) stars += i < p.stars ? '<b>★</b>' : '★';
-    e.stars.innerHTML = stars;
-    e.bust.style.width = `${clamp(p.busted, 0, 100)}%`;
-    e.cash.textContent = p.cash.toLocaleString();
-    e.speed.textContent = p.inCar ? Math.round(Math.abs(p.inCar.speed) * 3.6) : 0;
-    e.speedBox.classList.toggle('hidden', !p.inCar);
-    e.mission.textContent = world.missionText();
-    e.notify.textContent = world.messages.length ? world.messages[0].text : '';
-    e.crosshair.classList.toggle('hidden', !(p.armed || p.inCar) || world.state !== 'playing');
-    e.mute.textContent = muted ? 'MUTED  ·  M' : '';
+  render() {
+    this.renderer.render(this.scene, this.camera);
   }
+}
 
-  minimap(world) {
-    const ctx = this.mapCtx;
-    const p = world.getFocus();
-    const S = 184, half = S / 2, scale = 0.72;
-    ctx.clearRect(0, 0, S, S);
-    ctx.fillStyle = '#16222e';
-    ctx.fillRect(0, 0, S, S);
-    const mapX = (x) => half + (x - p.x) * scale;
-    const mapY = (z) => half + (z - p.z) * scale;
-    // Beach and water.
-    ctx.fillStyle = '#d9c18d';
-    ctx.fillRect(0, mapY(CFG.coastZ), S, S);
-    ctx.fillStyle = '#247c93';
-    ctx.fillRect(0, mapY(CFG.oceanZ), S, S);
-    // Sea wall / roads.
-    ctx.strokeStyle = 'rgba(255,255,255,.38)';
-    ctx.lineWidth = 2.4 * scale * 2;
-    ctx.beginPath();
-    for (let i = 0; i <= CFG.grid; i++) {
-      const x = mapX(roadCoord(i));
-      if (x > -30 && x < S + 30) { ctx.moveTo(x, 0); ctx.lineTo(x, S); }
-      const z = mapY(roadCoord(i));
-      if (z > -30 && z < S + 30) { ctx.moveTo(0, z); ctx.lineTo(S, z); }
-    }
-    ctx.stroke();
-    // Buildings.
-    ctx.fillStyle = 'rgba(232,226,210,.5)';
-    for (const b of world.city.boxes) {
-      const x = mapX(b.x - b.w / 2), y = mapY(b.z - b.d / 2);
-      if (x < -30 || y < -30 || x > S + 30 || y > S + 30) continue;
-      ctx.fillRect(x, y, b.w * scale, b.d * scale);
-    }
-    // Traffic and police.
-    ctx.fillStyle = 'rgba(190,225,255,.75)';
-    for (const c of world.cars) {
-      const x = mapX(c.x), y = mapY(c.z);
-      if (x > 0 && y > 0 && x < S && y < S) ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
-    }
-    for (const cop of world.police) {
-      const x = mapX(cop.x), y = mapY(cop.z);
-      ctx.fillStyle = '#ff4d4d';
-      ctx.beginPath(); ctx.arc(x, y, 3.6, 0, 6.283); ctx.fill();
-    }
-    const mark = world.missionMarker();
-    if (mark) {
-      const x = mapX(mark.x), y = mapY(mark.z);
-      ctx.fillStyle = '#ffd257';
-      ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x + 6, y); ctx.lineTo(x, y + 6); ctx.lineTo(x - 6, y);
-      ctx.closePath(); ctx.fill();
-    }
-    // Player arrow.
-    ctx.save();
-    ctx.translate(half, half);
-    ctx.rotate(p.angle);
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#111';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6.5, 7); ctx.lineTo(0, 3.5); ctx.lineTo(-6.5, 7);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.restore();
-    ctx.strokeStyle = 'rgba(255,255,255,.5)';
+// A top-down 2D minimap drawn each frame: roads, shoreline, the player's arrow,
+// police blips and the active mission marker.
+export function drawMinimap(canvas, world) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height, c = W / 2, scale = 0.62;
+  const p = world.playerPos();
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#cdd8c4';
+  ctx.fillRect(0, 0, W, H);
+  const tx = (x) => c + (x - p.x) * scale;
+  const ty = (z) => c + (z - p.z) * scale;
+  // Ocean and beach.
+  if (ty(CFG.oceanZ) < H) {
+    ctx.fillStyle = '#2d98bd';
+    ctx.fillRect(0, 0, W, Math.max(0, ty(CFG.oceanZ)));
+    ctx.fillStyle = '#e9d8a9';
+    ctx.fillRect(0, Math.max(0, ty(CFG.oceanZ)), W, Math.max(0, ty(CFG.shoreZ) - ty(CFG.oceanZ)));
+  }
+  // Building footprints.
+  ctx.fillStyle = 'rgba(106,113,112,0.32)';
+  for (const b of world.city.colliders) {
+    const x = tx(b.x - b.hw), y = ty(b.z - b.hd);
+    if (x > W || y > H || x + b.hw * 2 * scale < 0 || y + b.hd * 2 * scale < 0) continue;
+    ctx.fillRect(x, y, b.hw * 2 * scale, b.hd * 2 * scale);
+  }
+  // Road grid.
+  ctx.strokeStyle = '#59606b';
+  ctx.lineWidth = CFG.roadHalf * 2 * scale;
+  for (const r of world.city.roads) {
+    ctx.beginPath(); ctx.moveTo(tx(r), 0); ctx.lineTo(tx(r), H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, ty(r)); ctx.lineTo(W, ty(r)); ctx.stroke();
+  }
+  // Mission marker.
+  if (world.activeMarker()) {
+    const m = world.activeMarker();
+    ctx.fillStyle = '#ffd23f';
+    ctx.strokeStyle = '#5a3d00';
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(half, half, S / 2 - 2, 0, 6.283); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(tx(m.x), ty(m.z) - 8);
+    ctx.lineTo(tx(m.x) + 8, ty(m.z));
+    ctx.lineTo(tx(m.x), ty(m.z) + 8);
+    ctx.lineTo(tx(m.x) - 8, ty(m.z));
+    ctx.closePath(); ctx.fill(); ctx.stroke();
   }
+  // Police blips.
+  for (const car of world.police) {
+    const q = car.car.group.position;
+    ctx.fillStyle = '#e64a3b';
+    ctx.beginPath(); ctx.arc(tx(q.x), ty(q.z), 4, 0, Math.PI * 2); ctx.fill();
+  }
+  // Player arrow.
+  const h = world.mode === 'car' ? world.vehicle.heading : world.playerHeading;
+  ctx.save();
+  ctx.translate(c, c);
+  ctx.rotate(-h);
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#1c2d3a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -10); ctx.lineTo(7, 8); ctx.lineTo(0, 4); ctx.lineTo(-7, 8);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(30,45,55,0.6)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(1.5, 1.5, W - 3, H - 3);
 }
